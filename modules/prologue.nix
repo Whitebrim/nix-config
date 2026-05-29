@@ -25,128 +25,22 @@ let
     ])
   );
 
-  configFile = pkgs.writeText "prologue-config.php" ''
-    <?php
-    $db_host = '${cfg.database.host}';
-    $db_user = '${cfg.database.user}';
-    $db_pass = file_get_contents('${config.sops.secrets."prologue/db-password".path}');
-    $db_name = '${cfg.database.name}';
+  pythonEnv = pkgs.python3.withPackages (ps: [ ps.cryptography ]);
 
-    $app_url = '${cfg.appUrl}';
-    $app_subfolder = "";
-    $app_name = '${cfg.appName}';
-    $storage_filesystem_root = '${cfg.stateDir}/storage';
-    $log_directory = '${cfg.stateDir}/storage/logs';
+  # Setup hook run before php-fpm starts. See scripts/prologue-setup.py.
+  setupScript = ../scripts/prologue-setup.py;
 
-    $csrf_secret = file_get_contents('${config.sops.secrets."prologue/csrf-secret".path}');
-
-    function base_url($path = "") {
-      global $app_url, $app_subfolder;
-      return rtrim($app_url, "/") . "/" . ltrim($app_subfolder . "/" . ltrim($path, "/"), "/");
-    }
-
-    function base_path($path = "") {
-      global $app_subfolder;
-      return "/" . ltrim($app_subfolder . "/" . ltrim($path, "/"), "/");
-    }
-  '';
-
-  setupScript = pkgs.writeShellScript "prologue-setup" ''
-    set -eu
-    stateDir="${cfg.stateDir}"
-    version="${cfg.version}"
-
-    # Generate self-signed cert for Postfix STARTTLS on localhost
-    if [ ! -f "$stateDir/postfix-selfsigned-cert.pem" ]; then
-      ${pkgs.openssl}/bin/openssl req -x509 -newkey rsa:2048 -nodes \
-        -keyout "$stateDir/postfix-selfsigned-key.pem" \
-        -out "$stateDir/postfix-selfsigned-cert.pem" \
-        -days 3650 -subj "/CN=localhost"
-      chmod 0600 "$stateDir/postfix-selfsigned-key.pem"
-    fi
-
-    # Ensure Caddy can traverse the state directory
-    chmod 0755 "$stateDir"
-
-    current_version=$(cat "$stateDir/.version" 2>/dev/null || echo "")
-    if [ "$current_version" != "$version" ]; then
-      rm -rf "$stateDir/www"
-      cp -rT "${src}/public_html" "$stateDir/www"
-
-      # Patch PHPMailer: skip TLS cert verification and disable AUTH for localhost.
-      for f in \
-        "$stateDir/www/app/controllers/AdminController.php" \
-        "$stateDir/www/app/controllers/AuthController.php" \
-        "$stateDir/www/app/controllers/HomeController.php" \
-      ; do
-        ${pkgs.gnused}/bin/sed -i \
-          -e 's/\$mail->SMTPAuth = true;/\$mail->SMTPAuth = false;/' \
-          -e 's/\$mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;/\$mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;\n            \$mail->SMTPOptions = ["ssl" => ["verify_peer" => false, "verify_peer_name" => false, "allow_self_signed" => true]];/' \
-          "$f"
-      done
-
-      # Patch screen sharing to include audio.
-      ${pkgs.gnused}/bin/sed -i \
-        's/getDisplayMedia({ video: videoConstraints, audio: false })/getDisplayMedia({ video: videoConstraints, audio: true })/' \
-        "$stateDir/www/assets/js/call.js"
-
-      # Patch 2FA email provider too
-      if [ -f "$stateDir/www/app/modules/2fa/email/EmailTwoFAProvider.php" ]; then
-        ${pkgs.gnused}/bin/sed -i \
-          -e 's/\$mail->SMTPAuth = true;/\$mail->SMTPAuth = false;/' \
-          -e 's/\$mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;/\$mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;\n            \$mail->SMTPOptions = ["ssl" => ["verify_peer" => false, "verify_peer_name" => false, "allow_self_signed" => true]];/' \
-          "$stateDir/www/app/modules/2fa/email/EmailTwoFAProvider.php"
-      fi
-
-      # Allow 3-character usernames (default is 4+).
-      ${pkgs.gnused}/bin/sed -i \
-        "s|{3,31}|{2,31}|g" \
-        "$stateDir/www/app/models/User.php" \
-        "$stateDir/www/app/views/auth/register.php" \
-        "$stateDir/www/assets/js/user.js"
-      ${pkgs.gnused}/bin/sed -i \
-        's|minlength="4"|minlength="3"|g' \
-        "$stateDir/www/app/views/auth/register.php"
-      ${pkgs.gnused}/bin/sed -i \
-        "s|4-32|3-32|g" \
-        "$stateDir/www/app/controllers/InstallController.php" \
-        "$stateDir/www/app/controllers/AuthController.php" \
-        "$stateDir/www/app/views/auth/register.php" \
-        "$stateDir/www/app/views/settings.php" \
-        "$stateDir/www/app/config/config.php"
-
-      echo "$version" > "$stateDir/.version"
-    fi
-
-    mkdir -p "$stateDir/www/app/config"
-
-    # Use example config as base (contains DATABASE_SCHEMA_SQL)
-    # and override application settings via sed.
-    cp "${src}/public_html/app/config/example.config.php" "$stateDir/www/app/config/config.php"
-
-    db_pass=$(cat "${config.sops.secrets."prologue/db-password".path}")
-    csrf=$(cat "${config.sops.secrets."prologue/csrf-secret".path}")
-
-    ${pkgs.gnused}/bin/sed -i \
-      -e "s|\$CONFIG_DB_HOST = '.*';|\$CONFIG_DB_HOST = '${cfg.database.host}';|" \
-      -e "s|\$CONFIG_DB_USER = '.*';|\$CONFIG_DB_USER = '${cfg.database.user}';|" \
-      -e "s|\$CONFIG_DB_PASS = '.*';|\$CONFIG_DB_PASS = '$db_pass';|" \
-      -e "s|\$CONFIG_DB_NAME = '.*';|\$CONFIG_DB_NAME = '${cfg.database.name}';|" \
-      -e "s|\$CONFIG_APP_URL = '.*';|\$CONFIG_APP_URL = '${cfg.appUrl}';|" \
-      -e "s|\$CONFIG_APP_NAME = '.*';|\$CONFIG_APP_NAME = '${cfg.appName}';|" \
-      -e "s|\$CONFIG_STORAGE_FILESYSTEM_ROOT = '.*';|\$CONFIG_STORAGE_FILESYSTEM_ROOT = '$stateDir/storage';|" \
-      -e "s|\$CONFIG_LOG_DIRECTORY = '.*';|\$CONFIG_LOG_DIRECTORY = '$stateDir/storage/logs';|" \
-      -e "s|\$CONFIG_CSRF_SECRET = '.*';|\$CONFIG_CSRF_SECRET = '$csrf';|" \
-      "$stateDir/www/app/config/config.php"
-
-    chown prologue:prologue "$stateDir/www/app/config/config.php"
-    chmod 0400 "$stateDir/www/app/config/config.php"
-
-    mkdir -p "$stateDir/storage/logs"
-    mkdir -p "$stateDir/storage/attachments"
-
-    chown -R prologue:prologue "$stateDir/www" "$stateDir/storage" "$stateDir/.version"
-  '';
+  # Configuration consumed by the setup script. Secrets are referenced by path
+  # and read at runtime so they never land in the Nix store.
+  setupConfig = (pkgs.formats.json { }).generate "prologue-setup.json" {
+    inherit (cfg) version stateDir appUrl appName;
+    src = "${src}";
+    dbHost = cfg.database.host;
+    dbUser = cfg.database.user;
+    dbName = cfg.database.name;
+    dbPasswordFile = config.sops.secrets."prologue/db-password".path;
+    csrfSecretFile = config.sops.secrets."prologue/csrf-secret".path;
+  };
 in
 {
   options.services.prologue = {
@@ -231,7 +125,7 @@ in
     };
 
     systemd.services."phpfpm-${cfg.phpfpmPool}" = {
-      serviceConfig.ExecStartPre = [ setupScript ];
+      serviceConfig.ExecStartPre = [ "${pythonEnv}/bin/python3 ${setupScript} ${setupConfig}" ];
     };
 
     # Ensure Caddy can traverse the state directory.
