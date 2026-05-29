@@ -24,6 +24,7 @@ let
     ./modules/prologue.nix
     ./modules/outline.nix
     ./modules/mumble-server.nix
+    ./modules/mumble-discord-bridge.nix
     ./modules/flood.nix
     ./modules/jellyfin.nix
     ./modules/minio.nix

@@ -243,7 +243,10 @@ in
             filter-l7 = "discord,stun";
 
             dpi-desync = "fake";
+            dpi-desync-fake-discord = fakeGoogleQUIC;
+            dpi-desync-fake-stun = fakeGoogleQUIC;
             dpi-desync-ttl = 5;
+
             dpi-desync-repeats = 5;
             dpi-desync-fwmark = zapretFwmark;
           };
@@ -278,6 +281,13 @@ in
 
             ipset = map pkgs.copyPathToStore [
               ../../zapret/ipset/ipset.txt
+            ];
+
+            ipset-exclude-ip = lib.concatStringsSep "," [
+              # falcon subnets
+              "2a01:4f8:222:fe00::/56"
+              "2a01:4f8:222:1618::/64"
+              "213.133.111.103/32"
             ];
 
             dpi-desync = "fake";
@@ -346,6 +356,8 @@ in
         elements = {
           tcp . 80,
           tcp . 443,
+          tcp . 5432,
+          tcp . 6432,
           udp . 443,
           ${lib.concatMapStringsSep "\n" ({ proto, service }: "    ${proto} . ${toString service},") (
             lib.cartesianProduct {
