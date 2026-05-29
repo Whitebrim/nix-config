@@ -27,8 +27,8 @@ let
 
   pythonEnv = pkgs.python3.withPackages (ps: [ ps.cryptography ]);
 
-  # Setup hook run before php-fpm starts. See scripts/prologue-setup.py.
-  setupScript = ../scripts/prologue-setup.py;
+  # Setup hook run before php-fpm starts. See ./prologue-setup.py.
+  setupScript = ./prologue-setup.py;
 
   # Configuration consumed by the setup script. Secrets are referenced by path
   # and read at runtime so they never land in the Nix store.
