@@ -50,7 +50,7 @@
           {
             handler = "static_response";
             status_code = 301; # Moved Permanently
-            headers.Location = [ "https://t.me/Whitebrim" ];
+            headers.Location = [ "https://telegram.me/Whitebrim" ];
           }
         ];
       }
