@@ -7,17 +7,17 @@
         handle = [
           {
             handler = "reverse_proxy";
-            upstreams = [ { dial = "62.217.184.232:1896"; } ];
+            upstreams = [ { dial = "195.170.194.163:1896"; } ];
           }
         ];
       }
       {
-        match = [ { host = [ "pubg-api.brim.su" ]; } ];
+        match = [ { host = [ "pubg.brim.su" ]; } ];
         terminal = true;
         handle = [
           {
             handler = "reverse_proxy";
-            upstreams = [ { dial = "62.217.184.232:2017"; } ];
+            upstreams = [ { dial = "195.170.194.163:2017"; } ];
           }
         ];
       }
